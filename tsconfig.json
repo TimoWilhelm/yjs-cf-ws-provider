@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "alwaysStrict": true,
+
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "preserveConstEnums": true,
+    "disableSizeLimit": true,
+
+    "noErrorTruncation": true,
+
+    "moduleResolution": "node",
+
+    "rootDir": "src",
+    "outDir": "./dist",
+
+    "target": "ES2022",
+    "module": "ESNext",
+
+    "sourceMap": true,
+
+    "lib": ["ESNext"],
+    "types": ["@cloudflare/workers-types/experimental"]
+  },
+  "include": ["src"]
+}
