@@ -254,9 +254,10 @@ export class YjsProvider implements DurableObject {
   async alarm() {
     // Merge updates is fast but does not perform perform garbage-collection
     // so here we load the updates into a Yjs document before persisting them.
-    const doc = new Y.Doc();
+    const doc = new Y.Doc({ gc: true });
     Y.applyUpdateV2(doc, this.stateAsUpdateV2);
     this.stateAsUpdateV2 = Y.encodeStateAsUpdateV2(doc);
+    doc.destroy();
 
     // persist merged update
     await this.env.R2_DEFAULT.put(`state:${this.state.id.toString()}`, this.stateAsUpdateV2);
