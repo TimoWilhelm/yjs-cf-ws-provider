@@ -72,6 +72,11 @@ export function* chunkArray<T>(arr: readonly T[], n: number) {
   }
 }
 
+export const coerceOptionalBooleanStrict = z
+  .union([z.boolean().optional(), z.literal('true'), z.literal('1')])
+  .catch(false)
+  .transform((value) => (value === undefined ? undefined : Boolean(value)));
+
 function safeParseJSON(string: string): unknown {
   try {
     return JSON.parse(string);
