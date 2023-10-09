@@ -1,8 +1,8 @@
 import type { Env } from './env';
+import { Router, error, type IRequest } from 'itty-router';
+import index from './index.html';
 
 export { YjsProvider } from './durable/YjsProvider';
-import { Router, error, IRequest } from 'itty-router';
-import index from './index.html';
 
 type CF = [env: Env, context: ExecutionContext];
 
@@ -10,7 +10,7 @@ type RoomIdRequest = {
   roomid: string;
 } & IRequest;
 
-const router = Router();
+const router = Router<IRequest, CF>();
 
 router
   .get(

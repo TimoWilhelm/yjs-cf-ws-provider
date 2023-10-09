@@ -42,12 +42,18 @@ import * as time from 'lib0/time';
 import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import z from 'zod';
+import {
+  type IRequest,
+  type Route,
+  type RouterType,
+  Router as createRouter,
+  error,
+} from 'itty-router';
 
 import type { Env } from '../env';
 import {
   chunkArray,
   createSearchParamsObjSchema,
-  handleWorkerErrors,
   uuidV7,
   stringToColor,
   coerceOptionalBooleanStrict,
@@ -92,6 +98,8 @@ export class YjsProvider implements DurableObject {
 
   private readonly updateKeys = new Set<string>();
 
+  private readonly router: RouterType<Route, never[]>;
+
   constructor(private readonly state: DurableObjectState, private readonly env: Env) {
     this.vacuumIntervalInMs =
       z.number().positive().optional().parse(env.YJS_VACUUM_INTERVAL_IN_MS) ?? 30_000; // 30 seconds
@@ -101,6 +109,8 @@ export class YjsProvider implements DurableObject {
       const meta = ws.deserializeAttachment();
       this.sessions.set(ws, { ...meta });
     });
+
+    this.router = this.configureRouter();
 
     // hydrate DO state
     void this.state.blockConcurrencyWhile(async () => {
@@ -131,45 +141,7 @@ export class YjsProvider implements DurableObject {
   }
 
   fetch(request: Request) {
-    return handleWorkerErrors(request, async () => {
-      const url = new URL(request.url);
-
-      switch (url.pathname) {
-        case '/snapshot': {
-          return new Response(this.stateAsUpdateV2);
-        }
-
-        case '/connect': {
-          if (request.headers.get('upgrade') !== 'websocket') {
-            return new Response('expected websocket', { status: 400 });
-          }
-
-          const result = await connectSearchParamsSchema.safeParseAsync(url.searchParams);
-
-          if (!result.success) {
-            return new Response(JSON.stringify(result.error.format()), { status: 400 });
-          }
-
-          const { username, readonly } = result.data;
-
-          // get color from palette by username hash
-          const color = stringToColor(username);
-
-          const pair = new WebSocketPair();
-
-          this.state.acceptWebSocket(pair[1]);
-          await this.handleSession(pair[1], { username, color, readonly });
-
-          return new Response(null, {
-            status: 101,
-            webSocket: pair[0],
-          });
-        }
-
-        default:
-          return new Response('Not found', { status: 404 });
-      }
-    });
+    return this.router.handle(request).catch(error);
   }
 
   // eslint-disable-next-line max-statements
@@ -501,5 +473,44 @@ export class YjsProvider implements DurableObject {
         origin,
       );
     }
+  }
+
+  private configureRouter() {
+    const router = createRouter<IRequest, never[]>();
+
+    router
+      .get('/snapshot', () => {
+        return new Response(this.stateAsUpdateV2);
+      })
+      .get('/connect', async (request) => {
+        if (request.headers.get('upgrade') !== 'websocket') {
+          return new Response('expected websocket', { status: 400 });
+        }
+
+        const result = await connectSearchParamsSchema.safeParseAsync(
+          new URL(request.url).searchParams,
+        );
+
+        if (!result.success) {
+          return new Response(JSON.stringify(result.error.format()), { status: 400 });
+        }
+
+        const { username, readonly } = result.data;
+
+        // get color from palette by username hash
+        const color = stringToColor(username);
+
+        const pair = new WebSocketPair();
+
+        this.state.acceptWebSocket(pair[1]);
+        await this.handleSession(pair[1], { username, color, readonly });
+
+        return new Response(null, {
+          status: 101,
+          webSocket: pair[0],
+        });
+      });
+
+    return router;
   }
 }

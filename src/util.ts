@@ -1,33 +1,5 @@
 import { z } from 'zod';
 
-function serializeError(error: Error | unknown): string {
-  if (typeof error === 'string') return error;
-  return JSON.stringify(error, Object.getOwnPropertyNames(error));
-}
-
-export async function handleWorkerErrors(
-  request: Request,
-  handler: () => Response | Promise<Response>,
-) {
-  try {
-    return await Promise.resolve(handler());
-  } catch (err) {
-    console.error('Uncaught exception', err);
-    if (request.headers.get('upgrade') === 'websocket') {
-      // Annoyingly, if we return an HTTP error in response to a WebSocket request, Chrome devtools
-      // won't show us the response body! So... let's send a WebSocket response with an error
-      // frame instead.
-      const pair = new WebSocketPair();
-      pair[1].accept();
-      pair[1].send(JSON.stringify({ error: serializeError(err) }));
-      pair[1].close(1011, 'Uncaught exception during session setup');
-      return new Response(null, { status: 101, webSocket: pair[0] });
-    }
-
-    return new Response(serializeError(err), { status: 500 });
-  }
-}
-
 export const uuidV7 = uuidV7Builder((array) => crypto.getRandomValues(array));
 
 export function uuidV7Builder(
