@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta http-equiv="X-UA-Compatible" content="ie=edge" />
+		<style>
+			html,
+			body {
+				height: 100%;
+				margin: 0;
+			}
+			.container {
+				height: 100%;
+				display: flex;
+				align-items: stretch;
+			}
+			#editor {
+				display: flex;
+				flex: 1;
+				border: 2px solid gray;
+				margin: 4rem;
+				border-radius: 10px;
+				font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+			}
+			#editor:focus-within {
+				border-color: #2684ff;
+			}
+			.ProseMirror {
+				width: 100%;
+				flex-grow: 1;
+				padding: 1rem;
+			}
+			.ProseMirror:focus {
+				outline: none;
+			}
+			/* TipTap caret */
+			.collaboration-cursor__caret {
+				border-left: 1px solid #0d0d0d;
+				border-right: 1px solid #0d0d0d;
+				margin-left: -1px;
+				margin-right: -1px;
+				pointer-events: none;
+				position: relative;
+				word-break: normal;
+			}
+			.collaboration-cursor__label {
+				border-radius: 3px 3px 3px 0;
+				color: white;
+				font-size: 12px;
+				font-style: normal;
+				font-weight: 600;
+				left: -1px;
+				line-height: normal;
+				padding: 0.1rem 0.3rem;
+				position: absolute;
+				top: -1.4em;
+				user-select: none;
+				white-space: nowrap;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<div id="editor" />
+		</div>
+
+		<script type="module">
+			import * as Y from 'yjs';
+			import StarterKit from '@tiptap/starter-kit';
+			import { Editor } from '@tiptap/core';
+			import { Collaboration } from '@tiptap/extension-collaboration?external=yjs,lib0';
+			import { CollaborationCursor } from '@tiptap/extension-collaboration-cursor';
+			import { WebsocketProvider } from 'y-websocket';
+			import { zooId } from './src/zooId';
+			import { stringToColor } from './src/util';
+
+			const room = 'DEBUG';
+
+			const username = zooId();
+
+			const yDoc = new Y.Doc();
+
+			const url = new URL('/yjs', window.location.href);
+			url.protocol = url.protocol.replace('http', 'ws');
+			const provider = new WebsocketProvider(url.toString(), room, yDoc, {
+				disableBc: true,
+			});
+
+			const editor = new Editor({
+				element: document.querySelector('#editor'),
+				extensions: [
+					StarterKit.configure({
+						history: false, // Collaboration extension handles history (https://tiptap.dev/api/extensions/collaboration#commands)
+					}),
+					Collaboration.configure({
+						document: yDoc,
+					}),
+					CollaborationCursor.configure({
+						provider,
+						user: {
+							name: username,
+							color: stringToColor(username),
+						},
+					}),
+				],
+			});
+		</script>
+	</body>
+</html>

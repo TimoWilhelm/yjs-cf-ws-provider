@@ -1,0 +1,37 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "yjs-provider",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-04-26",
+	"assets": {
+		"not_found_handling": "single-page-application"
+	},
+	"vars": {
+		"YJS_VACUUM_INTERVAL_IN_MS": "30000"
+	},
+
+	"r2_buckets": [
+		{
+			"binding": "R2_YJS_BUCKET",
+			"bucket_name": "yjs-bucket"
+		}
+	],
+
+	"durable_objects": {
+		"bindings": [{
+			"name": "DURABLE_YJSPROVIDER",
+			"class_name": "YjsProvider"
+		}]
+	},
+
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_classes": ["YjsProvider"]
+		}
+	]
+}
