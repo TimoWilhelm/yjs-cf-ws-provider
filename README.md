@@ -22,8 +22,3 @@ npm run dev
 This will start a local server using the Wrangler CLI and serve a demo app. You can open a browser
 to the URL that is displayed in the console to test it with a simple [TipTap](https://tiptap.dev/)
 editor.
-
-## Is this a good idea?
-
-I don't know... Probably not? Keep in mind that every WebSocket message counts as a request towards
-your Cloudflare Workers plan. This could grow quickly if you have a lot of users.
