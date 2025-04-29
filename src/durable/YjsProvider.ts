@@ -444,7 +444,7 @@ export class YjsProvider extends DurableObject {
 		for (let i = 0; i < len; i += 1) {
 			const clientID = decoding.readVarUint(decoder);
 			let clock = decoding.readVarUint(decoder);
-			const clientState = JSON.parse(decoding.readVarString(decoder));
+			const state = JSON.parse(decoding.readVarString(decoder));
 
 			const session = this.sessions.get(origin);
 			if (session === undefined) {
@@ -452,15 +452,6 @@ export class YjsProvider extends DurableObject {
 				return;
 			}
 
-			const serverState = {
-				server: {
-					id: clientID,
-				},
-			};
-			const state = {
-				...clientState,
-				...serverState,
-			};
 			const clientMeta = awareness.meta.get(clientID);
 			const prevState = awareness.states.get(clientID);
 			const currClock = clientMeta === undefined ? 0 : clientMeta.clock;
