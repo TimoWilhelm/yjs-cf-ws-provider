@@ -444,7 +444,7 @@ export class YjsProvider extends DurableObject {
 		for (let i = 0; i < len; i += 1) {
 			const clientID = decoding.readVarUint(decoder);
 			let clock = decoding.readVarUint(decoder);
-			const state = JSON.parse(decoding.readVarString(decoder));
+			const state = JSON.parse(decoding.readVarString(decoder)) as { [x: string]: unknown } | null;
 
 			const session = this.sessions.get(origin);
 			if (session === undefined) {
