@@ -13,6 +13,7 @@
 			.container {
 				height: 100%;
 				display: flex;
+				flex-direction: column;
 				align-items: stretch;
 			}
 			#editor {
@@ -62,7 +63,12 @@
 	</head>
 	<body>
 		<div class="container">
-			<div id="editor" />
+			<div style="margin: 1rem; display: flex; justify-content: center; gap: 1rem">
+				<span id="connection-status" style="text-transform: capitalize;">Status: Disconnected</span>
+				<button id="connection-toggle">Connect</button>
+			</div>
+
+			<div id="editor"></div>
 		</div>
 
 		<script type="module">
@@ -72,6 +78,7 @@
 			import { Collaboration } from '@tiptap/extension-collaboration?external=yjs,lib0';
 			import { CollaborationCursor } from '@tiptap/extension-collaboration-cursor';
 			import { WebsocketProvider } from 'y-websocket';
+			import { IndexeddbPersistence } from 'y-indexeddb';
 			import { zooId } from './src/zooId';
 			import { stringToColor } from './src/util';
 
@@ -81,9 +88,14 @@
 
 			const yDoc = new Y.Doc();
 
+			// IndexedDB Persistence
+			const indexeddbPersistence = new IndexeddbPersistence(`ydoc-${room}}`, yDoc);
+
+			// WebSocket Provider
 			const url = new URL('/yjs', window.location.href);
 			url.protocol = url.protocol.replace('http', 'ws');
 			const provider = new WebsocketProvider(url.toString(), room, yDoc, {
+				connect: false,
 				disableBc: true,
 			});
 
@@ -104,6 +116,34 @@
 						},
 					}),
 				],
+			});
+
+			indexeddbPersistence.whenSynced.then(() => {
+				provider.connect();
+			});
+
+			const connectionToggle = document.getElementById('connection-toggle');
+			const connectionStatus = document.getElementById('connection-status');
+
+			// Update connection status
+			const updateStatus = (status) => {
+				connectionStatus.textContent = `Status: ${status}`;
+				connectionToggle.textContent = status === 'connected' ? 'Disconnect' : 'Connect';
+			};
+
+			// Listen for provider status changes
+			provider.on('status', (event) => {
+				updateStatus(event.status);
+				console.log(`Provider status: ${event.status}`);
+			});
+
+			// Toggle connection on button click
+			connectionToggle.addEventListener('click', () => {
+				if (provider.wsconnected) {
+					provider.disconnect();
+				} else {
+					provider.connect();
+				}
 			});
 		</script>
 	</body>
