@@ -59,16 +59,24 @@
 				user-select: none;
 				white-space: nowrap;
 			}
+
+			.participants {
+				display: block;
+				resize: none;
+				height: 10vh;
+			}
 		</style>
 	</head>
 	<body>
 		<div class="container">
 			<div style="margin: 1rem; display: flex; justify-content: center; gap: 1rem">
-				<span id="connection-status" style="text-transform: capitalize;">Status: Disconnected</span>
+				<span id="connection-status" style="text-transform: capitalize">Status: Disconnected</span>
 				<button id="connection-toggle">Connect</button>
 			</div>
 
 			<div id="editor"></div>
+
+			<div class="participants"></div>
 		</div>
 
 		<script type="module">
@@ -135,6 +143,31 @@
 			provider.on('status', (event) => {
 				updateStatus(event.status);
 				console.log(`Provider status: ${event.status}`);
+			});
+
+			provider.awareness.on('change', ({ added, updated, removed }) => {
+				console.log('Awareness Change', added, updated, removed);
+
+				const states = provider.awareness.getStates();
+				const participants = Array.from(states.entries()).map(([id, value]) => {
+					console.log('Participant:', id, value);
+					if (value.user === undefined) {
+						return null;
+					}
+					return {
+						name: value.user.name,
+						color: value.user.color,
+					};
+				}).filter(Boolean);
+
+				const participantsDiv = document.querySelector('.participants');
+				participantsDiv.innerHTML = '';
+				participants.forEach((participant) => {
+					const participantDiv = document.createElement('div');
+					participantDiv.textContent = participant.name;
+					participantDiv.style.color = participant.color;
+					participantsDiv.appendChild(participantDiv);
+				});
 			});
 
 			// Toggle connection on button click
