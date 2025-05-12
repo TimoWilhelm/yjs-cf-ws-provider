@@ -118,10 +118,9 @@ export class YjsProvider extends DurableObject {
 				updates.push(baseUpdate);
 			}
 
-			// const partialUpdates = await this.ctx.storage.list<Uint8Array>({ prefix: 'doc:' });
 			const cursor = this.ctx.storage.sql.exec<DbUpdate>('SELECT * FROM doc_updates');
 
-			for (let row of cursor) {
+			for (const row of cursor) {
 				updates.push(new Uint8Array(row.data));
 			}
 
@@ -160,7 +159,7 @@ export class YjsProvider extends DurableObject {
 		// Persist merged update
 		await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
 
-		// Clear partial updates.
+		// Clear partial updates
 		this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
 	}
 
@@ -267,12 +266,14 @@ export class YjsProvider extends DurableObject {
 
 	public async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
 		console.log('WebSocket closed:', code, reason, wasClean);
-		await this.handleClose(ws);
+		this.handleClose(ws);
+		await Promise.resolve();
 	}
 
 	public async webSocketError(ws: WebSocket, err: unknown): Promise<void> {
 		console.error('WebSocket error:', err);
-		await this.handleClose(ws);
+		this.handleClose(ws);
+		await Promise.resolve();
 	}
 
 	private async handleUpdateV1(updateV1: Uint8Array) {
@@ -301,7 +302,7 @@ export class YjsProvider extends DurableObject {
 		void this.broadcast(message);
 	}
 
-	private async handleAwarenessChange(
+	private handleAwarenessChange(
 		{ added, updated, removed }: { added: Array<number>; updated: Array<number>; removed: Array<number> },
 		ws: WebSocket | null
 	) {
@@ -364,7 +365,7 @@ export class YjsProvider extends DurableObject {
 		}
 	}
 
-	private async handleClose(webSocket: WebSocket) {
+	private handleClose(webSocket: WebSocket) {
 		webSocket.close(1011); // ensure websocket is closed
 
 		const session = this.sessions.get(webSocket);
@@ -373,7 +374,7 @@ export class YjsProvider extends DurableObject {
 			return;
 		}
 
-		await this.removeAwarenessStates(this.awareness, Array.from(session.controlledIds), webSocket);
+		this.removeAwarenessStates(this.awareness, Array.from(session.controlledIds), webSocket);
 
 		this.sessions.delete(webSocket);
 
@@ -396,7 +397,7 @@ export class YjsProvider extends DurableObject {
 	}
 
 	// https://github.com/yjs/y-protocols/blob/ba21a9c92990743554e47223c49513630b7eadda/awareness.js#L167
-	private async removeAwarenessStates(awareness: Awareness, clients: number[], origin: WebSocket) {
+	private removeAwarenessStates(awareness: Awareness, clients: number[], origin: WebSocket) {
 		const removed = [];
 		for (let i = 0; i < clients.length; i += 1) {
 			const clientID = clients[i];
@@ -413,7 +414,7 @@ export class YjsProvider extends DurableObject {
 			}
 		}
 		if (removed.length > 0) {
-			await this.handleAwarenessChange(
+			this.handleAwarenessChange(
 				{
 					added: [],
 					updated: [],
