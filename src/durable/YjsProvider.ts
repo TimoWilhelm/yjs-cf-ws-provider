@@ -43,13 +43,19 @@ import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import z from 'zod';
 
-import { chunkArray, uuidV7 } from '../util';
+type DbUpdate = {
+	id: number;
+	data: ArrayBuffer;
+};
+
+type DbAwareness = {
+	id: 0;
+	state: string;
+};
 
 interface SessionInfo {
 	readonly: boolean;
 }
-
-type LocalAwarenessState = ReturnType<Awareness['getLocalState']>;
 
 const enum MESSAGE_TYPE {
 	SYNC = 0,
@@ -77,10 +83,18 @@ export class YjsProvider extends DurableObject {
 
 	private readonly vacuumInterval: Temporal.Duration;
 
-	private readonly updateKeys = new Set<string>();
-
 	constructor(public readonly ctx: DurableObjectState, public readonly env: Env) {
 		super(ctx, env);
+
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS doc_updates(
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				data BLOB
+			);
+			CREATE TABLE IF NOT EXISTS awareness(
+				id INTEGER PRIMARY KEY CHECK (id = 0),
+				state TEXT
+			);`);
 
 		const vacuumIntervalInMs = z.coerce.number().positive().optional().parse(env.YJS_VACUUM_INTERVAL_IN_MS);
 
@@ -104,18 +118,20 @@ export class YjsProvider extends DurableObject {
 				updates.push(baseUpdate);
 			}
 
-			const partialUpdates = await this.ctx.storage.list<Uint8Array>({ prefix: 'doc:' });
-			partialUpdates.forEach((update, key) => {
-				updates.push(update);
-				this.updateKeys.add(key);
-			});
+			// const partialUpdates = await this.ctx.storage.list<Uint8Array>({ prefix: 'doc:' });
+			const cursor = this.ctx.storage.sql.exec<DbUpdate>('SELECT * FROM doc_updates');
+
+			for (let row of cursor) {
+				updates.push(new Uint8Array(row.data));
+			}
 
 			this.stateAsUpdateV2 = Y.mergeUpdatesV2(updates);
 
 			// initialize awareness
-			const initialAwarenessState = await this.ctx.storage.get<LocalAwarenessState>('awareness');
-			if (initialAwarenessState) {
-				this.awareness.setLocalState(initialAwarenessState);
+			const {done, value: initialAwarenessState} = this.ctx.storage.sql.exec<DbAwareness>('SELECT * FROM awareness').next();
+			if (!done) {
+				const parsed = JSON.parse(initialAwarenessState.state);
+				this.awareness.setLocalState(parsed);
 			}
 		});
 	}
@@ -144,36 +160,12 @@ export class YjsProvider extends DurableObject {
 		// Persist merged update
 		await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
 
-		// Clear partial updates. The storage delete operation supports up to 128 keys at a time
-		const chunks = chunkArray(Array.from(this.updateKeys), 128);
-		await Promise.all([...chunks].map((chunk) => this.ctx.storage.delete(chunk)));
+		// Clear partial updates.
+		this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
 	}
 
 	public async cleanup(): Promise<void> {
 		await this.ctx.storage.deleteAll();
-	}
-
-	public async debug(): Promise<Record<string, unknown>> {
-		const storage = await this.ctx.storage.list();
-		const alarm = await this.ctx.storage.getAlarm();
-
-		return {
-			storage: {
-				keys: Array.from(storage.keys()),
-				alarm:
-					alarm === null
-						? null
-						: {
-								epoch: alarm,
-								date: Temporal.Instant.fromEpochMilliseconds(alarm).toString(),
-								secondsUntilAlarm: Math.trunc((alarm - Temporal.Now.instant().epochMilliseconds) / 1000),
-						  },
-				sessions: [...this.sessions.values()].map((v) => ({
-					controlledIds: [...v.controlledIds],
-					info: v.context,
-				})),
-			},
-		};
 	}
 
 	public async acceptWebsocket(sessionInfo: SessionInfo): Promise<Response> {
@@ -287,14 +279,12 @@ export class YjsProvider extends DurableObject {
 		const updateV2 = Y.convertUpdateFormatV1ToV2(updateV1);
 
 		// persist update
-		const key = `doc:${uuidV7()}`;
-		await this.ctx.storage.put<Uint8Array>(key, updateV2);
+		this.ctx.storage.sql.exec<Pick<DbUpdate, 'id'>>(`INSERT INTO doc_updates (data) VALUES (?)`, [
+			updateV2.buffer,
+		]);
 
 		// merge update
 		this.stateAsUpdateV2 = Y.mergeUpdatesV2([this.stateAsUpdateV2, updateV2]);
-
-		// save key for vacuuming
-		this.updateKeys.add(key);
 
 		// setup alarm to vacuum storage
 		const alarm = await this.ctx.storage.getAlarm();
@@ -342,7 +332,10 @@ export class YjsProvider extends DurableObject {
 
 		// persist awareness
 		const state = this.awareness.getLocalState();
-		await this.ctx.storage.put<LocalAwarenessState>('awareness', state);
+		const serialized = JSON.stringify(state);
+		this.ctx.storage.sql.exec(`INSERT INTO awareness (id, state) VALUES (0, ?) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state`, [
+			serialized,
+		]);
 	}
 
 	private async handleSession(webSocket: WebSocket, sessionInfo: SessionInfo) {
@@ -386,7 +379,7 @@ export class YjsProvider extends DurableObject {
 
 		if (this.sessions.size === 0) {
 			// delete awareness storage entry if no one is connected anymore
-			await this.ctx.storage.delete('awareness');
+			this.ctx.storage.sql.exec('DELETE FROM awareness');
 		}
 	}
 
