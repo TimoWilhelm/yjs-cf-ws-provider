@@ -86,6 +86,7 @@ export class YjsProvider extends DurableObject {
 	constructor(public readonly ctx: DurableObjectState, public readonly env: Env) {
 		super(ctx, env);
 
+		// setup tables
 		this.ctx.storage.sql.exec(`
 			CREATE TABLE IF NOT EXISTS doc_updates(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,7 +128,7 @@ export class YjsProvider extends DurableObject {
 			this.stateAsUpdateV2 = Y.mergeUpdatesV2(updates);
 
 			// initialize awareness
-			const {done, value: initialAwarenessState} = this.ctx.storage.sql.exec<DbAwareness>('SELECT * FROM awareness').next();
+			const { done, value: initialAwarenessState } = this.ctx.storage.sql.exec<DbAwareness>('SELECT * FROM awareness').next();
 			if (!done) {
 				const parsed = JSON.parse(initialAwarenessState.state);
 				this.awareness.setLocalState(parsed);
@@ -167,14 +168,14 @@ export class YjsProvider extends DurableObject {
 		await this.ctx.storage.deleteAll();
 	}
 
-	public async acceptWebsocket(sessionInfo: SessionInfo): Promise<Response> {
+	public acceptWebsocket(sessionInfo: SessionInfo): Response {
 		const pair = new WebSocketPair() as {
 			0: WebSocket;
 			1: WebSocket;
 		};
 
 		this.ctx.acceptWebSocket(pair[1]);
-		await this.handleSession(pair[1], sessionInfo);
+		this.handleSession(pair[1], sessionInfo);
 
 		return new Response(null, {
 			status: 101,
@@ -220,7 +221,7 @@ export class YjsProvider extends DurableObject {
 							// message, there is no need to send the message. When `encoder` only
 							// contains the type of reply, its length is 1.
 							if (encoding.length(encoder) > 1) {
-								await this.send(ws, encoding.toUint8Array(encoder));
+								this.send(ws, encoding.toUint8Array(encoder));
 							}
 
 							break;
@@ -253,7 +254,7 @@ export class YjsProvider extends DurableObject {
 					break;
 				}
 				case MESSAGE_TYPE.AWARENESS: {
-					await this.applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(decoder), ws);
+					this.applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(decoder), ws);
 					break;
 				}
 				default:
@@ -264,25 +265,20 @@ export class YjsProvider extends DurableObject {
 		}
 	}
 
-	public async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
+	public webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
 		console.log('WebSocket closed:', code, reason, wasClean);
-		this.handleClose(ws);
-		await Promise.resolve();
 	}
 
-	public async webSocketError(ws: WebSocket, err: unknown): Promise<void> {
+	public webSocketError(ws: WebSocket, err: unknown): void {
 		console.error('WebSocket error:', err);
 		this.handleClose(ws);
-		await Promise.resolve();
 	}
 
 	private async handleUpdateV1(updateV1: Uint8Array) {
 		const updateV2 = Y.convertUpdateFormatV1ToV2(updateV1);
 
 		// persist update
-		this.ctx.storage.sql.exec<Pick<DbUpdate, 'id'>>(`INSERT INTO doc_updates (data) VALUES (?)`, [
-			updateV2.buffer,
-		]);
+		this.ctx.storage.sql.exec<Pick<DbUpdate, 'id'>>(`INSERT INTO doc_updates (data) VALUES (?)`, [updateV2.buffer]);
 
 		// merge update
 		this.stateAsUpdateV2 = Y.mergeUpdatesV2([this.stateAsUpdateV2, updateV2]);
@@ -339,7 +335,7 @@ export class YjsProvider extends DurableObject {
 		]);
 	}
 
-	private async handleSession(webSocket: WebSocket, sessionInfo: SessionInfo) {
+	private handleSession(webSocket: WebSocket, sessionInfo: SessionInfo) {
 		webSocket.serializeAttachment({
 			...webSocket.deserializeAttachment(),
 			sessionInfo,
@@ -353,7 +349,7 @@ export class YjsProvider extends DurableObject {
 		encoding.writeVarUint(encoder, MESSAGE_TYPE.SYNC);
 		encoding.writeVarUint(encoder, SYNC_MESSAGE_TYPE.STEP1);
 		encoding.writeVarUint8Array(encoder, stateVector);
-		await this.send(webSocket, encoding.toUint8Array(encoder));
+		this.send(webSocket, encoding.toUint8Array(encoder));
 
 		// send awareness update
 		const awarenessStates = this.awareness.getStates();
@@ -361,7 +357,7 @@ export class YjsProvider extends DurableObject {
 			const awarenessEncoder = encoding.createEncoder();
 			encoding.writeVarUint(awarenessEncoder, MESSAGE_TYPE.AWARENESS);
 			encoding.writeVarUint8Array(awarenessEncoder, encodeAwarenessUpdate(this.awareness, Array.from(awarenessStates.keys())));
-			await this.send(webSocket, encoding.toUint8Array(awarenessEncoder));
+			this.send(webSocket, encoding.toUint8Array(awarenessEncoder));
 		}
 	}
 
@@ -384,16 +380,18 @@ export class YjsProvider extends DurableObject {
 		}
 	}
 
-	private async send(ws: WebSocket, message: Uint8Array) {
+	private send(ws: WebSocket, message: Uint8Array) {
 		try {
 			ws.send(message);
 		} catch {
-			await this.handleClose(ws);
+			this.handleClose(ws);
 		}
 	}
 
-	private async broadcast(message: Uint8Array) {
-		await Promise.all([...this.sessions.keys()].map((ws) => this.send(ws, message)));
+	private broadcast(message: Uint8Array) {
+		for (const ws of this.sessions.keys()) {
+			this.send(ws, message);
+		}
 	}
 
 	// https://github.com/yjs/y-protocols/blob/ba21a9c92990743554e47223c49513630b7eadda/awareness.js#L167
@@ -427,7 +425,7 @@ export class YjsProvider extends DurableObject {
 
 	// https://github.com/yjs/y-protocols/blob/ba21a9c92990743554e47223c49513630b7eadda/awareness.js#L241
 	// eslint-disable-next-line max-statements
-	private async applyAwarenessUpdate(awareness: Awareness, update: Uint8Array, origin: WebSocket) {
+	private applyAwarenessUpdate(awareness: Awareness, update: Uint8Array, origin: WebSocket) {
 		const decoder = decoding.createDecoder(update);
 		const timestamp = Temporal.Now.instant().epochMilliseconds;
 		const added = [];
@@ -480,7 +478,7 @@ export class YjsProvider extends DurableObject {
 		}
 
 		if (added.length > 0 || updated.length > 0 || removed.length > 0) {
-			await this.handleAwarenessChange(
+			this.handleAwarenessChange(
 				{
 					added,
 					updated,
