@@ -90,10 +90,6 @@ export class YjsProvider extends DurableObject {
 			CREATE TABLE IF NOT EXISTS doc_updates(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				data BLOB
-			);
-			CREATE TABLE IF NOT EXISTS awareness(
-				id INTEGER PRIMARY KEY CHECK (id = 0),
-				state TEXT
 			);`);
 
 		const vacuumIntervalInMs = z.coerce.number().positive().optional().parse(env.YJS_VACUUM_INTERVAL_IN_MS);
@@ -125,13 +121,6 @@ export class YjsProvider extends DurableObject {
 			}
 
 			this.stateAsUpdateV2 = Y.mergeUpdatesV2(updates);
-
-			// initialize awareness
-			const { done, value: initialAwarenessState } = this.ctx.storage.sql.exec<DbAwareness>('SELECT * FROM awareness').next();
-			if (!done) {
-				const parsed = JSON.parse(initialAwarenessState.state);
-				this.awareness.setLocalState(parsed);
-			}
 		});
 	}
 
@@ -293,7 +282,7 @@ export class YjsProvider extends DurableObject {
 		encoding.writeVarUint(encoder, SYNC_MESSAGE_TYPE.UPDATE);
 		encoding.writeVarUint8Array(encoder, updateV1);
 		const message = encoding.toUint8Array(encoder);
-		void this.broadcast(message);
+		this.broadcast(message);
 	}
 
 	private handleAwarenessChange(
@@ -323,14 +312,7 @@ export class YjsProvider extends DurableObject {
 		const encoder = encoding.createEncoder();
 		encoding.writeVarUint(encoder, MESSAGE_TYPE.AWARENESS);
 		encoding.writeVarUint8Array(encoder, encodeAwarenessUpdate(this.awareness, changedClients));
-		void this.broadcast(encoding.toUint8Array(encoder));
-
-		// persist awareness
-		const state = this.awareness.getLocalState();
-		const serialized = JSON.stringify(state);
-		this.ctx.storage.sql.exec(`INSERT INTO awareness (id, state) VALUES (0, ?) ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state`, [
-			serialized,
-		]);
+		this.broadcast(encoding.toUint8Array(encoder));
 	}
 
 	private handleSession(webSocket: WebSocket, sessionInfo: SessionInfo) {
@@ -371,11 +353,6 @@ export class YjsProvider extends DurableObject {
 		this.removeAwarenessStates(this.awareness, Array.from(session.controlledIds), webSocket);
 
 		this.sessions.delete(webSocket);
-
-		if (this.sessions.size === 0) {
-			// delete awareness storage entry if no one is connected anymore
-			this.ctx.storage.sql.exec('DELETE FROM awareness');
-		}
 	}
 
 	private send(ws: WebSocket, message: Uint8Array) {
