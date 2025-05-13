@@ -1,6 +1,5 @@
-/* eslint-disable max-lines */
-
 /*
+ *                   Yjs Sync Protocol
  * ┌───────────────────────────────────────────────────────┐
  * │                                                       │
  * │  ┌───────────┐      ┌───────────┐     ┌────────────┐  │
@@ -192,7 +191,6 @@ export class YjsProvider extends DurableObject {
 		});
 	}
 
-	// eslint-disable-next-line max-statements
 	public async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
 		if (typeof message === 'string') {
 			return;
@@ -424,7 +422,6 @@ export class YjsProvider extends DurableObject {
 	}
 
 	// https://github.com/yjs/y-protocols/blob/ba21a9c92990743554e47223c49513630b7eadda/awareness.js#L241
-	// eslint-disable-next-line max-statements
 	private applyAwarenessUpdate(awareness: Awareness, update: Uint8Array, origin: WebSocket) {
 		const decoder = decoding.createDecoder(update);
 		const timestamp = Temporal.Now.instant().epochMilliseconds;
