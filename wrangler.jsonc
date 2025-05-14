@@ -8,6 +8,7 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2025-04-26",
 	"assets": {
+		"directory": "dist",
 		"not_found_handling": "single-page-application"
 	},
 	"vars": {
