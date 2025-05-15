@@ -2,7 +2,12 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/TimoWilhelm/yjs-cf-ws-provider)
 
-This is a Yjs WebSocket Connector that uses Cloudflare Workers + Durable Objects to relay messages between clients.  It is compatible with the [Yjs WebSocket Connector](https://github.com/yjs/y-websocket).
+> [!NOTE]
+> This project is intended for learning purposes and demonstration of the Cloudflare Workers and Durable Objects APIs.
+> If you are looking for a production-ready solution, check out [PartyKit](https://docs.partykit.io/guides/deploy-to-cloudflare/) which also
+> supports the [Yjs API](https://docs.partykit.io/reference/y-partykit-api/).
+
+This project implements a Serverless Yjs WebSocket provider using Cloudflare Workers + Durable Objects to relay messages between clients. It is fully compatible with the [Yjs WebSocket Connector](https://github.com/yjs/y-websocket).
 
 ![Architecture Diagram](org/architecture.png)
 
