@@ -14,6 +14,7 @@
 		"@cloudflare/vite-plugin": "^1.0.12",
 		"@cloudflare/vitest-pool-workers": "^0.8.19",
 		"@cloudflare/workers-types": "^4.20250426.0",
+		"@outerbase/browsable-durable-object": "^0.1.1",
 		"@tiptap/core": "^2.11.7",
 		"@tiptap/extension-collaboration": "^2.11.7",
 		"@tiptap/extension-collaboration-cursor": "^2.11.7",

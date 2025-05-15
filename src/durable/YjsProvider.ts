@@ -41,6 +41,8 @@ import { Temporal } from 'temporal-polyfill';
 import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import z from 'zod';
+import { Browsable } from '@outerbase/browsable-durable-object';
+
 
 type DbUpdate = {
 	id: number;
@@ -67,6 +69,7 @@ const enum SYNC_MESSAGE_TYPE {
 	UPDATE = 2,
 }
 
+@Browsable()
 export class YjsProvider extends DurableObject {
 	private sessions: Map<
 		WebSocket,
