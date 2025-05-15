@@ -1,6 +1,6 @@
 # Yjs WebSocket Provider
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/TimoWilhelm/do-yjs-provider)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/TimoWilhelm/yjs-cf-ws-provider)
 
 This is a Yjs WebSocket Connector that uses Cloudflare Workers + Durable Objects to relay messages between clients.  It is compatible with the [Yjs WebSocket Connector](https://github.com/yjs/y-websocket).
 
