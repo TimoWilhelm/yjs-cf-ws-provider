@@ -102,10 +102,10 @@
 
 			const yDoc = new Y.Doc();
 
-			// IndexedDB Persistence
+			// IndexedDB Persistence to support offline editing
 			const indexeddbPersistence = new IndexeddbPersistence(`ydoc-${roomId}}`, yDoc);
 
-			// WebSocket Provider
+			// WebSocket Provider for real-time collaboration
 			const url = new URL('/yjs', window.location.href);
 			url.protocol = url.protocol.replace('http', 'ws');
 			const provider = new WebsocketProvider(url.toString(), roomId, yDoc, {
