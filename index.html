@@ -90,19 +90,25 @@
 			import { zooId } from './src/zooId';
 			import { stringToColor } from './src/util';
 
-			const room = 'DEBUG';
+			let roomId = new URLSearchParams(window.location.search).get('room');
+			if (!roomId) {
+				roomId = Math.random().toString(36).substring(2, 10);
+				const url = new URL(window.location.href);
+				url.searchParams.set('room', roomId);
+				window.history.replaceState({}, '', url);
+			}
 
 			const username = zooId();
 
 			const yDoc = new Y.Doc();
 
 			// IndexedDB Persistence
-			const indexeddbPersistence = new IndexeddbPersistence(`ydoc-${room}}`, yDoc);
+			const indexeddbPersistence = new IndexeddbPersistence(`ydoc-${roomId}}`, yDoc);
 
 			// WebSocket Provider
 			const url = new URL('/yjs', window.location.href);
 			url.protocol = url.protocol.replace('http', 'ws');
-			const provider = new WebsocketProvider(url.toString(), room, yDoc, {
+			const provider = new WebsocketProvider(url.toString(), roomId, yDoc, {
 				connect: false,
 				disableBc: true,
 			});
