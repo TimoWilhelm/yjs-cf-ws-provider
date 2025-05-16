@@ -55,14 +55,14 @@ const enum SYNC_MESSAGE_TYPE {
 }
 
 @Browsable()
-export class YjsProvider extends DurableObject {
-	private sessions: Map<
+export class YjsProvider extends DurableObject<Env> {
+	private sessions = new Map<
 		WebSocket,
 		{
 			controlledIds: Set<number>;
 			context: SessionInfo;
 		}
-	> = new Map();
+	>();
 
 	private stateAsUpdateV2: Uint8Array = new Uint8Array();
 
@@ -70,7 +70,7 @@ export class YjsProvider extends DurableObject {
 
 	private readonly vacuumInterval: Temporal.Duration;
 
-	constructor(public readonly ctx: DurableObjectState, public readonly env: Env) {
+	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 
 		// setup tables
@@ -145,10 +145,7 @@ export class YjsProvider extends DurableObject {
 	}
 
 	public acceptWebsocket(sessionInfo: SessionInfo): Response {
-		const pair = new WebSocketPair() as {
-			0: WebSocket;
-			1: WebSocket;
-		};
+		const pair = new WebSocketPair();
 
 		this.ctx.acceptWebSocket(pair[1]);
 		this.handleSession(pair[1], sessionInfo);
