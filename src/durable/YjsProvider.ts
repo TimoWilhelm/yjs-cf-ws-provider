@@ -140,10 +140,6 @@ export class YjsProvider extends DurableObject<Env> {
 		this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
 	}
 
-	public async cleanup(): Promise<void> {
-		await this.ctx.storage.deleteAll();
-	}
-
 	public acceptWebsocket(sessionInfo: SessionInfo): Response {
 		const pair = new WebSocketPair();
 
