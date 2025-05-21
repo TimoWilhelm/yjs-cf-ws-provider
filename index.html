@@ -15,6 +15,7 @@
 				display: flex;
 				flex-direction: column;
 				align-items: stretch;
+				font-size: 2rem;
 			}
 			#editor {
 				display: flex;
@@ -64,19 +65,24 @@
 				display: block;
 				resize: none;
 				height: 10vh;
+				overflow: auto;
+				flex: 1;
 			}
 		</style>
 	</head>
 	<body>
 		<div class="container">
-			<div style="margin: 1rem; display: flex; justify-content: center; gap: 1rem">
-				<span id="connection-status" style="text-transform: capitalize">Status: Disconnected</span>
+			<div style="margin: 1rem; display: flex; justify-content: center; gap: 1rem;">
+				<span id="connection-status" style="text-transform: capitalize;">Status: Disconnected</span>
 				<button id="connection-toggle">Connect</button>
 			</div>
 
 			<div id="editor"></div>
 
-			<div class="participants"></div>
+			<div style="margin: 1rem; display: flex; gap: 1rem;">
+				<div>Connected Clients:</div>
+				<div class="participants"></div>
+			</div>
 		</div>
 
 		<script type="module">
@@ -92,9 +98,10 @@
 
 			let roomId = new URLSearchParams(window.location.search).get('room');
 			if (!roomId) {
-				roomId = Math.random().toString(36).substring(2, 10);
+				roomId = zooId({ separator: '-' });
 				const url = new URL(window.location.href);
-				url.searchParams.set('room', roomId);
+				const randomNumber = Math.floor(Math.random() * 100) + 1;
+				url.searchParams.set('room', `${roomId}-${randomNumber}`);
 				window.history.replaceState({}, '', url);
 			}
 
@@ -155,16 +162,18 @@
 				console.log('Awareness Change', added, updated, removed);
 
 				const states = provider.awareness.getStates();
-				const participants = Array.from(states.entries()).map(([id, value]) => {
-					console.log('Participant:', id, value);
-					if (value.user === undefined) {
-						return null;
-					}
-					return {
-						name: value.user.name,
-						color: value.user.color,
-					};
-				}).filter(Boolean);
+				const participants = Array.from(states.entries())
+					.map(([id, value]) => {
+						console.log('Participant:', id, value);
+						if (value.user === undefined) {
+							return null;
+						}
+						return {
+							name: `${value.user.name}${id === provider.awareness.clientID ? ' (you)' : ''}`,
+							color: value.user.color,
+						};
+					})
+					.filter(Boolean);
 
 				const participantsDiv = document.querySelector('.participants');
 				participantsDiv.innerHTML = '';

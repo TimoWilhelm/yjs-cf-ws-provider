@@ -136,8 +136,21 @@ export class YjsProvider extends DurableObject<Env> {
 		// Persist merged update
 		await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
 
+		// Check number of sessions
+		if (this.sessions.size === 0) {
+			// Cleanup the whole DO
+			void this.ctx.blockConcurrencyWhile(async () => {
+				await this.ctx.storage.deleteAlarm();
+				await this.ctx.storage.deleteAll();
+				this.ctx.abort();
+			});
+		}
+
 		// Clear partial updates
 		this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
+
+		// Set next alarm
+		await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
 	}
 
 	public acceptWebsocket(sessionInfo: SessionInfo): Response {
