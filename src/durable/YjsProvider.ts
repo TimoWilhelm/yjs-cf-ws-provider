@@ -66,6 +66,8 @@ export class YjsProvider extends DurableObject<Env> {
 
 	private stateAsUpdateV2: Uint8Array = new Uint8Array();
 
+	private hasUpdates = false;
+
 	private readonly awareness = new Awareness(new Y.Doc());
 
 	private readonly vacuumInterval: Temporal.Duration;
@@ -132,15 +134,20 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public async alarm(): Promise<void> {
-		// Merge updates is fast but does not perform perform garbage-collection
-		// so here we load the updates into a Yjs document before persisting them.
-		const doc = new Y.Doc({ gc: true });
-		Y.applyUpdateV2(doc, this.stateAsUpdateV2);
-		this.stateAsUpdateV2 = Y.encodeStateAsUpdateV2(doc);
-		doc.destroy();
+		if (this.hasUpdates) {
+			// Merge updates is fast but does not perform perform garbage-collection
+			// so here we load the updates into a Yjs document before persisting them.
+			const doc = new Y.Doc({ gc: true });
+			Y.applyUpdateV2(doc, this.stateAsUpdateV2);
+			this.stateAsUpdateV2 = Y.encodeStateAsUpdateV2(doc);
+			doc.destroy();
 
-		// Persist merged update
-		await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
+			// Persist merged update
+			await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
+
+			// Clear partial updates
+			this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
+		}
 
 		// Check number of sessions
 		if (this.sessions.size === 0) {
@@ -151,9 +158,6 @@ export class YjsProvider extends DurableObject<Env> {
 				this.ctx.abort();
 			});
 		}
-
-		// Clear partial updates
-		this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
 
 		// Set next alarm
 		await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
@@ -270,6 +274,8 @@ export class YjsProvider extends DurableObject<Env> {
 
 		// merge update
 		this.stateAsUpdateV2 = Y.mergeUpdatesV2([this.stateAsUpdateV2, updateV2]);
+
+		this.hasUpdates = true;
 
 		// broadcast update
 		const encoder = encoding.createEncoder();
