@@ -72,14 +72,14 @@
 	</head>
 	<body>
 		<div class="container">
-			<div style="margin: 1rem; display: flex; justify-content: center; gap: 1rem;">
-				<span id="connection-status" style="text-transform: capitalize;">Status: Disconnected</span>
+			<div style="margin: 1rem; display: flex; justify-content: center; gap: 1rem">
+				<span id="connection-status" style="text-transform: capitalize">Status: Disconnected</span>
 				<button id="connection-toggle">Connect</button>
 			</div>
 
 			<div id="editor"></div>
 
-			<div style="margin: 1rem; display: flex; gap: 1rem;">
+			<div style="margin: 1rem; display: flex; gap: 1rem">
 				<div>Connected Clients:</div>
 				<div class="participants"></div>
 			</div>
@@ -98,10 +98,10 @@
 
 			let roomId = new URLSearchParams(window.location.search).get('room');
 			if (!roomId) {
-				roomId = zooId({ separator: '-' });
-				const url = new URL(window.location.href);
 				const randomNumber = Math.floor(Math.random() * 100) + 1;
-				url.searchParams.set('room', `${roomId}-${randomNumber}`);
+				roomId = `${zooId({ separator: '-' })}-${randomNumber}`;
+				const url = new URL(window.location.href);
+				url.searchParams.set('room', roomId);
 				window.history.replaceState({}, '', url);
 			}
 
@@ -110,7 +110,7 @@
 			const yDoc = new Y.Doc();
 
 			// IndexedDB Persistence to support offline editing
-			const indexeddbPersistence = new IndexeddbPersistence(`ydoc-${roomId}}`, yDoc);
+			const indexeddbPersistence = new IndexeddbPersistence(`ydoc-${roomId}`, yDoc);
 
 			// WebSocket Provider for real-time collaboration
 			const url = new URL('/yjs', window.location.href);
