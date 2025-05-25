@@ -248,6 +248,7 @@ export class YjsProvider extends DurableObject<Env> {
 
 	public webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
 		console.log('WebSocket closed:', code, reason, wasClean);
+		this.handleClose(ws);
 	}
 
 	public webSocketError(ws: WebSocket, err: unknown): void {
