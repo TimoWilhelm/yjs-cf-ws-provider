@@ -109,6 +109,12 @@ export class YjsProvider extends DurableObject<Env> {
 			}
 
 			this.stateAsUpdateV2 = Y.mergeUpdatesV2(updates);
+
+			// setup alarm to vacuum storage
+			const alarm = await this.ctx.storage.getAlarm();
+			if (alarm === null) {
+				await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
+			}
 		});
 	}
 
@@ -264,12 +270,6 @@ export class YjsProvider extends DurableObject<Env> {
 
 		// merge update
 		this.stateAsUpdateV2 = Y.mergeUpdatesV2([this.stateAsUpdateV2, updateV2]);
-
-		// setup alarm to vacuum storage
-		const alarm = await this.ctx.storage.getAlarm();
-		if (alarm === null) {
-			await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
-		}
 
 		// broadcast update
 		const encoder = encoding.createEncoder();
