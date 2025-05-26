@@ -4,6 +4,7 @@
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<meta http-equiv="X-UA-Compatible" content="ie=edge" />
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
 		<style>
 			html,
 			body {
@@ -16,6 +17,7 @@
 				display: flex;
 				flex-direction: column;
 				align-items: stretch;
+				gap: 1rem;
 			}
 			#editor {
 				display: flex;
@@ -71,8 +73,11 @@
 	</head>
 	<body>
 		<div class="container">
-			<div style="margin: 1rem; display: flex; justify-content: center; gap: 1rem">
+			<div style="display: flex; justify-content: center; padding-top: 0.5rem">
 				<span id="connection-status" style="text-transform: capitalize">Status: Disconnected</span>
+			</div>
+
+			<div style="display: flex; justify-content: center">
 				<button id="connection-toggle">Connect</button>
 			</div>
 
@@ -82,7 +87,7 @@
 
 			<div id="editor"></div>
 
-			<div style="margin: 1rem; display: flex; gap: 1rem">
+			<div style="display: flex; gap: 1rem">
 				<div>Connected Clients:</div>
 				<div class="participants"></div>
 			</div>
