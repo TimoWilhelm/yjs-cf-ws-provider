@@ -16,13 +16,12 @@
 				display: flex;
 				flex-direction: column;
 				align-items: stretch;
-				font-size: 2rem;
 			}
 			#editor {
 				display: flex;
 				flex: 1;
 				border: 2px solid gray;
-				margin: 4rem;
+				margin: 2rem;
 				border-radius: 10px;
 			}
 			#editor:focus-within {
@@ -75,6 +74,10 @@
 			<div style="margin: 1rem; display: flex; justify-content: center; gap: 1rem">
 				<span id="connection-status" style="text-transform: capitalize">Status: Disconnected</span>
 				<button id="connection-toggle">Connect</button>
+			</div>
+
+			<div style="display: flex; justify-content: center">
+				<button id="copy-link">Copy Room Link</button>
 			</div>
 
 			<div id="editor"></div>
@@ -141,6 +144,11 @@
 
 			indexeddbPersistence.whenSynced.then(() => {
 				provider.connect();
+			});
+
+			document.getElementById('copy-link').addEventListener('click', () => {
+				navigator.clipboard.writeText(window.location.href);
+				alert('Room link copied to clipboard!');
 			});
 
 			const connectionToggle = document.getElementById('connection-toggle');
