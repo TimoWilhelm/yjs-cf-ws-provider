@@ -147,6 +147,8 @@ export class YjsProvider extends DurableObject<Env> {
 
 			// Clear partial updates
 			this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
+
+			this.hasUpdates = false;
 		}
 
 		// Check number of sessions
