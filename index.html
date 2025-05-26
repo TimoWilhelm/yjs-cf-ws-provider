@@ -5,12 +5,12 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<meta http-equiv="X-UA-Compatible" content="ie=edge" />
 		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+		<title>Collaborative Editor Demo App</title>
 		<style>
 			html,
 			body {
 				height: 100%;
 				margin: 0;
-				font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 			}
 			.container {
 				height: 100%;
@@ -23,7 +23,6 @@
 				display: flex;
 				flex: 1;
 				border: 2px solid gray;
-				margin: 2rem;
 				border-radius: 10px;
 			}
 			#editor:focus-within {
@@ -73,16 +72,23 @@
 	</head>
 	<body>
 		<div class="container">
+			<span style="text-align: center; font-weight: bold; padding-top: 0.5rem">
+				Demo App for <a href="https://github.com/TimoWilhelm/yjs-cf-ws-provider">Durable Object Yjs WebSocket Provider</a>
+			</span>
 			<div style="display: flex; justify-content: center; padding-top: 0.5rem">
-				<span id="connection-status" style="text-transform: capitalize">Status: Disconnected</span>
+				<span id="connection-status" style="text-transform: capitalize; font-weight: bold">Status: Disconnected</span>
 			</div>
 
-			<div style="display: flex; justify-content: center">
+			<div style="display: flex; justify-content: center; gap: 1rem">
 				<button id="connection-toggle">Connect</button>
+				<button id="copy-link">Copy Room Link</button>
 			</div>
 
-			<div style="display: flex; justify-content: center">
-				<button id="copy-link">Copy Room Link</button>
+			<div style="display: flex; justify-content: center; gap: 1rem">
+				<details>
+					<summary>Show QR Code</summary>
+					<canvas id="qr-canvas"></canvas>
+				</details>
 			</div>
 
 			<div id="editor"></div>
@@ -103,6 +109,7 @@
 			import { IndexeddbPersistence } from 'y-indexeddb';
 			import { zooId } from './src/zooId';
 			import { stringToColor } from './src/util';
+			import * as QRCode from 'qrcode';
 
 			let roomId = new URLSearchParams(window.location.search).get('room');
 			if (!roomId) {
@@ -112,6 +119,8 @@
 				url.searchParams.set('room', roomId);
 				window.history.replaceState({}, '', url);
 			}
+
+			QRCode.toCanvas(document.getElementById('qr-canvas'), window.location.href);
 
 			const username = zooId();
 
