@@ -75,12 +75,7 @@ export class YjsProvider extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 
-		// setup tables
-		this.ctx.storage.sql.exec(`
-			CREATE TABLE IF NOT EXISTS doc_updates(
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				data BLOB
-			);`);
+		this.setupTables();
 
 		const vacuumIntervalInMs = z.coerce.number().positive().optional().parse(env.YJS_VACUUM_INTERVAL_IN_MS);
 
@@ -134,6 +129,8 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public async alarm(): Promise<void> {
+		this.setupTables();
+
 		if (this.hasUpdates) {
 			// Merge updates is fast but does not perform perform garbage-collection
 			// so here we load the updates into a Yjs document before persisting them.
@@ -151,13 +148,18 @@ export class YjsProvider extends DurableObject<Env> {
 			this.hasUpdates = false;
 		}
 
-		if (this.sessions.size !== 0) {
-			// Set next alarm
-			await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
+		if (this.sessions.size === 0) {
+			await this.ctx.storage.deleteAll();
+			return;
 		}
+
+		// Set next alarm
+		await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
 	}
 
 	public acceptWebsocket(sessionInfo: SessionInfo): Response {
+		this.setupTables();
+
 		const pair = new WebSocketPair();
 
 		this.ctx.acceptWebSocket(pair[1]);
@@ -170,6 +172,8 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public getSnapshot(): ReadableStream<Uint8Array> {
+		this.setupTables();
+
 		return new ReadableStream({
 			start: (controller) => {
 				controller.enqueue(this.stateAsUpdateV2);
@@ -179,6 +183,8 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+		this.setupTables();
+
 		if (typeof message === 'string') {
 			return;
 		}
@@ -251,11 +257,15 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
+		this.setupTables();
+
 		console.log('WebSocket closed:', code, reason, wasClean);
 		this.handleClose(ws);
 	}
 
 	public webSocketError(ws: WebSocket, err: unknown): void {
+		this.setupTables();
+
 		console.error('WebSocket error:', err);
 		this.handleClose(ws);
 	}
@@ -456,5 +466,13 @@ export class YjsProvider extends DurableObject<Env> {
 				origin
 			);
 		}
+	}
+
+	private setupTables() {
+		this.ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS doc_updates(
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				data BLOB
+			);`);
 	}
 }
