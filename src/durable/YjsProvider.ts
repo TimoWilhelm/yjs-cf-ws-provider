@@ -66,8 +66,6 @@ export class YjsProvider extends DurableObject<Env> {
 
 	private stateAsUpdateV2: Uint8Array = new Uint8Array();
 
-	private hasUpdates = false;
-
 	private readonly awareness = new Awareness(new Y.Doc());
 
 	private readonly vacuumInterval: Temporal.Duration;
@@ -109,7 +107,15 @@ export class YjsProvider extends DurableObject<Env> {
 		});
 	}
 
-	public fetch(request: Request): Response | Promise<Response> {
+	public async fetch(request: Request): Promise<Response> {
+		this.setup();
+
+		// setup alarm to vacuum storage
+		const alarm = await this.ctx.storage.getAlarm();
+		if (alarm === null) {
+			await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
+		}
+
 		const url = new URL(request.url);
 		if (url.pathname !== '/ws') {
 			return new Response('Not found', { status: 404 });
@@ -124,45 +130,7 @@ export class YjsProvider extends DurableObject<Env> {
 
 	public async alarm(): Promise<void> {
 		this.setup();
-
-		if (this.hasUpdates) {
-			// Merge updates is fast but does not perform perform garbage-collection
-			// so here we load the updates into a Yjs document before persisting them.
-			const doc = new Y.Doc({ gc: true });
-			Y.applyUpdateV2(doc, this.stateAsUpdateV2);
-			this.stateAsUpdateV2 = Y.encodeStateAsUpdateV2(doc);
-			doc.destroy();
-
-			// Persist merged update
-			await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
-
-			// Clear partial updates
-			this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
-
-			this.hasUpdates = false;
-		}
-
-		if (this.sessions.size === 0) {
-			await this.ctx.storage.deleteAll();
-			return;
-		}
-
-		// Set next alarm
-		await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
-	}
-
-	public acceptWebsocket(sessionInfo: SessionInfo): Response {
-		this.setup();
-
-		const pair = new WebSocketPair();
-
-		this.ctx.acceptWebSocket(pair[1]);
-		this.handleSession(pair[1], sessionInfo);
-
-		return new Response(null, {
-			status: 101,
-			webSocket: pair[0],
-		});
+		await this.vacuum();
 	}
 
 	public getSnapshot(): ReadableStream<Uint8Array> {
@@ -206,7 +174,7 @@ export class YjsProvider extends DurableObject<Env> {
 							// message, there is no need to send the message. When `encoder` only
 							// contains the type of reply, its length is 1.
 							if (encoding.length(encoder) > 1) {
-								this.send(ws, encoding.toUint8Array(encoder));
+								await this.send(ws, encoding.toUint8Array(encoder));
 							}
 
 							break;
@@ -239,7 +207,7 @@ export class YjsProvider extends DurableObject<Env> {
 					break;
 				}
 				case MESSAGE_TYPE.AWARENESS: {
-					this.applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(decoder), ws);
+					await this.applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(decoder), ws);
 					break;
 				}
 				default:
@@ -250,18 +218,18 @@ export class YjsProvider extends DurableObject<Env> {
 		}
 	}
 
-	public webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
+	public async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
 		this.setup();
 
 		console.log('WebSocket closed:', code, reason, wasClean);
-		this.handleClose(ws);
+		await this.handleClose(ws);
 	}
 
-	public webSocketError(ws: WebSocket, err: unknown): void {
+	public async webSocketError(ws: WebSocket, err: unknown): Promise<void> {
 		this.setup();
 
 		console.error('WebSocket error:', err);
-		this.handleClose(ws);
+		await this.handleClose(ws);
 	}
 
 	private async handleUpdateV1(updateV1: Uint8Array) {
@@ -273,7 +241,11 @@ export class YjsProvider extends DurableObject<Env> {
 		// merge update
 		this.stateAsUpdateV2 = Y.mergeUpdatesV2([this.stateAsUpdateV2, updateV2]);
 
-		this.hasUpdates = true;
+		// setup alarm to vacuum storage
+		const alarm = await this.ctx.storage.getAlarm();
+		if (alarm === null) {
+			await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
+		}
 
 		// broadcast update
 		const encoder = encoding.createEncoder();
@@ -281,10 +253,10 @@ export class YjsProvider extends DurableObject<Env> {
 		encoding.writeVarUint(encoder, SYNC_MESSAGE_TYPE.UPDATE);
 		encoding.writeVarUint8Array(encoder, updateV1);
 		const message = encoding.toUint8Array(encoder);
-		this.broadcast(message);
+		await this.broadcast(message);
 	}
 
-	private handleAwarenessChange(
+	private async handleAwarenessChange(
 		{ added, updated, removed }: { added: Array<number>; updated: Array<number>; removed: Array<number> },
 		ws: WebSocket | null
 	) {
@@ -311,10 +283,10 @@ export class YjsProvider extends DurableObject<Env> {
 		const encoder = encoding.createEncoder();
 		encoding.writeVarUint(encoder, MESSAGE_TYPE.AWARENESS);
 		encoding.writeVarUint8Array(encoder, encodeAwarenessUpdate(this.awareness, changedClients));
-		this.broadcast(encoding.toUint8Array(encoder));
+		await this.broadcast(encoding.toUint8Array(encoder));
 	}
 
-	private handleSession(webSocket: WebSocket, sessionInfo: SessionInfo) {
+	private async handleSession(webSocket: WebSocket, sessionInfo: SessionInfo) {
 		webSocket.serializeAttachment({
 			...webSocket.deserializeAttachment(),
 			sessionInfo,
@@ -328,7 +300,7 @@ export class YjsProvider extends DurableObject<Env> {
 		encoding.writeVarUint(encoder, MESSAGE_TYPE.SYNC);
 		encoding.writeVarUint(encoder, SYNC_MESSAGE_TYPE.STEP1);
 		encoding.writeVarUint8Array(encoder, stateVector);
-		this.send(webSocket, encoding.toUint8Array(encoder));
+		await this.send(webSocket, encoding.toUint8Array(encoder));
 
 		// send awareness update
 		const awarenessStates = this.awareness.getStates();
@@ -336,11 +308,23 @@ export class YjsProvider extends DurableObject<Env> {
 			const awarenessEncoder = encoding.createEncoder();
 			encoding.writeVarUint(awarenessEncoder, MESSAGE_TYPE.AWARENESS);
 			encoding.writeVarUint8Array(awarenessEncoder, encodeAwarenessUpdate(this.awareness, Array.from(awarenessStates.keys())));
-			this.send(webSocket, encoding.toUint8Array(awarenessEncoder));
+			await this.send(webSocket, encoding.toUint8Array(awarenessEncoder));
 		}
 	}
 
-	private handleClose(webSocket: WebSocket) {
+	private async acceptWebsocket(sessionInfo: SessionInfo): Promise<Response> {
+		const pair = new WebSocketPair();
+
+		this.ctx.acceptWebSocket(pair[1]);
+		await this.handleSession(pair[1], sessionInfo);
+
+		return new Response(null, {
+			status: 101,
+			webSocket: pair[0],
+		});
+	}
+
+	private async handleClose(webSocket: WebSocket) {
 		webSocket.close(1011); // ensure websocket is closed
 
 		const session = this.sessions.get(webSocket);
@@ -349,27 +333,29 @@ export class YjsProvider extends DurableObject<Env> {
 			return;
 		}
 
-		this.removeAwarenessStates(this.awareness, Array.from(session.controlledIds), webSocket);
+		await this.removeAwarenessStates(this.awareness, Array.from(session.controlledIds), webSocket);
 
 		this.sessions.delete(webSocket);
+
+		if (this.sessions.size === 0) {
+			await this.vacuum();
+		}
 	}
 
-	private send(ws: WebSocket, message: Uint8Array) {
+	private async send(ws: WebSocket, message: Uint8Array): Promise<void> {
 		try {
 			ws.send(message);
 		} catch {
-			this.handleClose(ws);
+			await this.handleClose(ws);
 		}
 	}
 
-	private broadcast(message: Uint8Array) {
-		for (const ws of this.sessions.keys()) {
-			this.send(ws, message);
-		}
+	private async broadcast(message: Uint8Array): Promise<void> {
+		await Promise.all(Array.from(this.sessions.keys()).map((ws) => this.send(ws, message)));
 	}
 
 	// https://github.com/yjs/y-protocols/blob/ba21a9c92990743554e47223c49513630b7eadda/awareness.js#L167
-	private removeAwarenessStates(awareness: Awareness, clients: number[], origin: WebSocket) {
+	private async removeAwarenessStates(awareness: Awareness, clients: number[], origin: WebSocket) {
 		const removed = [];
 		for (let i = 0; i < clients.length; i += 1) {
 			const clientID = clients[i];
@@ -386,7 +372,7 @@ export class YjsProvider extends DurableObject<Env> {
 			}
 		}
 		if (removed.length > 0) {
-			this.handleAwarenessChange(
+			await this.handleAwarenessChange(
 				{
 					added: [],
 					updated: [],
@@ -398,7 +384,7 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	// https://github.com/yjs/y-protocols/blob/ba21a9c92990743554e47223c49513630b7eadda/awareness.js#L241
-	private applyAwarenessUpdate(awareness: Awareness, update: Uint8Array, origin: WebSocket) {
+	private async applyAwarenessUpdate(awareness: Awareness, update: Uint8Array, origin: WebSocket) {
 		const decoder = decoding.createDecoder(update);
 		const timestamp = Temporal.Now.instant().epochMilliseconds;
 		const added = [];
@@ -451,7 +437,7 @@ export class YjsProvider extends DurableObject<Env> {
 		}
 
 		if (added.length > 0 || updated.length > 0 || removed.length > 0) {
-			this.handleAwarenessChange(
+			await this.handleAwarenessChange(
 				{
 					added,
 					updated,
@@ -462,17 +448,30 @@ export class YjsProvider extends DurableObject<Env> {
 		}
 	}
 
-	private async setup() {
-		// setup alarm to vacuum storage
-		const alarm = await this.ctx.storage.getAlarm();
-		if (alarm === null) {
-			await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
-		}
-
+	private setup() {
 		this.ctx.storage.sql.exec(`
 			CREATE TABLE IF NOT EXISTS doc_updates(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				data BLOB
 			);`);
+	}
+
+	private async vacuum() {
+		// Merge updates is fast but does not perform perform garbage-collection
+		// so here we load the updates into a Yjs document before persisting them.
+		const doc = new Y.Doc({ gc: true });
+		Y.applyUpdateV2(doc, this.stateAsUpdateV2);
+		this.stateAsUpdateV2 = Y.encodeStateAsUpdateV2(doc);
+		doc.destroy();
+
+		// Persist merged update
+		await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
+
+		// Clear partial updates
+		this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
+
+		if (this.sessions.size === 0) {
+			await this.ctx.storage.deleteAll();
+		}
 	}
 }
