@@ -91,12 +91,6 @@ export class YjsProvider extends DurableObject<Env> {
 		void this.ctx.blockConcurrencyWhile(async () => {
 			const updates = [] as Uint8Array[];
 
-			const result = await env.R2_YJS_BUCKET.get(`state:${this.ctx.id.toString()}`);
-			if (result) {
-				const baseUpdate = new Uint8Array(await result.arrayBuffer());
-				updates.push(baseUpdate);
-			}
-
 			const cursor = this.ctx.storage.sql.exec<DbUpdate>('SELECT * FROM doc_updates');
 
 			for (const row of cursor) {
@@ -463,9 +457,6 @@ export class YjsProvider extends DurableObject<Env> {
 		Y.applyUpdateV2(doc, this.stateAsUpdateV2);
 		this.stateAsUpdateV2 = Y.encodeStateAsUpdateV2(doc);
 		doc.destroy();
-
-		// Persist merged update
-		await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
 
 		// Clear partial updates
 		this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
