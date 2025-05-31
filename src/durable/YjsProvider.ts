@@ -75,7 +75,7 @@ export class YjsProvider extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 
-		this.setupTables();
+		this.setup();
 
 		const vacuumIntervalInMs = z.coerce.number().positive().optional().parse(env.YJS_VACUUM_INTERVAL_IN_MS);
 
@@ -106,12 +106,6 @@ export class YjsProvider extends DurableObject<Env> {
 			}
 
 			this.stateAsUpdateV2 = Y.mergeUpdatesV2(updates);
-
-			// setup alarm to vacuum storage
-			const alarm = await this.ctx.storage.getAlarm();
-			if (alarm === null) {
-				await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
-			}
 		});
 	}
 
@@ -129,7 +123,7 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public async alarm(): Promise<void> {
-		this.setupTables();
+		this.setup();
 
 		if (this.hasUpdates) {
 			// Merge updates is fast but does not perform perform garbage-collection
@@ -158,7 +152,7 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public acceptWebsocket(sessionInfo: SessionInfo): Response {
-		this.setupTables();
+		this.setup();
 
 		const pair = new WebSocketPair();
 
@@ -172,7 +166,7 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public getSnapshot(): ReadableStream<Uint8Array> {
-		this.setupTables();
+		this.setup();
 
 		return new ReadableStream({
 			start: (controller) => {
@@ -183,7 +177,7 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-		this.setupTables();
+		this.setup();
 
 		if (typeof message === 'string') {
 			return;
@@ -257,14 +251,14 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
-		this.setupTables();
+		this.setup();
 
 		console.log('WebSocket closed:', code, reason, wasClean);
 		this.handleClose(ws);
 	}
 
 	public webSocketError(ws: WebSocket, err: unknown): void {
-		this.setupTables();
+		this.setup();
 
 		console.error('WebSocket error:', err);
 		this.handleClose(ws);
@@ -468,7 +462,13 @@ export class YjsProvider extends DurableObject<Env> {
 		}
 	}
 
-	private setupTables() {
+	private async setup() {
+		// setup alarm to vacuum storage
+		const alarm = await this.ctx.storage.getAlarm();
+		if (alarm === null) {
+			await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
+		}
+
 		this.ctx.storage.sql.exec(`
 			CREATE TABLE IF NOT EXISTS doc_updates(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
