@@ -64,6 +64,8 @@ export class YjsProvider extends DurableObject<Env> {
 		}
 	>();
 
+	private migrationsApplied = false;
+
 	private stateAsUpdateV2: Uint8Array = new Uint8Array();
 
 	private readonly awareness = new Awareness(new Y.Doc());
@@ -73,7 +75,11 @@ export class YjsProvider extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 
-		this.setup();
+		const originalDeleteAll = this.ctx.storage.deleteAll.bind(this.ctx.storage);
+		this.ctx.storage.deleteAll = async (options?: DurableObjectPutOptions) => {
+			await originalDeleteAll(options);
+			this.migrationsApplied = false;
+		};
 
 		const vacuumIntervalInMs = z.coerce.number().positive().optional().parse(env.YJS_VACUUM_INTERVAL_IN_MS);
 
@@ -97,7 +103,7 @@ export class YjsProvider extends DurableObject<Env> {
 				updates.push(baseUpdate);
 			}
 
-			const cursor = this.ctx.storage.sql.exec<DbUpdate>('SELECT * FROM doc_updates');
+			const cursor = this.db.exec<DbUpdate>('SELECT * FROM doc_updates');
 
 			for (const row of cursor) {
 				updates.push(new Uint8Array(row.data));
@@ -107,15 +113,26 @@ export class YjsProvider extends DurableObject<Env> {
 		});
 	}
 
-	public async fetch(request: Request): Promise<Response> {
-		this.setup();
-
-		// setup alarm to vacuum storage
-		const alarm = await this.ctx.storage.getAlarm();
-		if (alarm === null) {
-			await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
+	private get db() {
+		if (!this.migrationsApplied) {
+			this.ctx.storage.sql.exec(`
+				CREATE TABLE IF NOT EXISTS doc_updates(
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					data BLOB
+				);`);
+			this.migrationsApplied = true;
 		}
+		// run vacuum after storage access
+		void this.ctx.storage.getAlarm().then(async (alarm) => {
+			if (alarm === null) {
+				await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
+			}
+		});
 
+		return this.ctx.storage.sql;
+	}
+
+	public async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		if (url.pathname !== '/ws') {
 			return new Response('Not found', { status: 404 });
@@ -129,13 +146,11 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public async alarm(): Promise<void> {
-		this.setup();
+		console.log('Alarm fired, vacuuming YjsProvider storage');
 		await this.vacuum();
 	}
 
 	public getSnapshot(): ReadableStream<Uint8Array> {
-		this.setup();
-
 		return new ReadableStream({
 			start: (controller) => {
 				controller.enqueue(this.stateAsUpdateV2);
@@ -145,8 +160,6 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-		this.setup();
-
 		if (typeof message === 'string') {
 			return;
 		}
@@ -219,15 +232,11 @@ export class YjsProvider extends DurableObject<Env> {
 	}
 
 	public async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
-		this.setup();
-
 		console.log('WebSocket closed:', code, reason, wasClean);
 		await this.handleClose(ws);
 	}
 
 	public async webSocketError(ws: WebSocket, err: unknown): Promise<void> {
-		this.setup();
-
 		console.error('WebSocket error:', err);
 		await this.handleClose(ws);
 	}
@@ -236,16 +245,10 @@ export class YjsProvider extends DurableObject<Env> {
 		const updateV2 = Y.convertUpdateFormatV1ToV2(updateV1);
 
 		// persist update
-		this.ctx.storage.sql.exec<Pick<DbUpdate, 'id'>>(`INSERT INTO doc_updates (data) VALUES (?)`, [updateV2.buffer]);
+		this.db.exec<Pick<DbUpdate, 'id'>>(`INSERT INTO doc_updates (data) VALUES (?)`, [updateV2.buffer]);
 
 		// merge update
 		this.stateAsUpdateV2 = Y.mergeUpdatesV2([this.stateAsUpdateV2, updateV2]);
-
-		// setup alarm to vacuum storage
-		const alarm = await this.ctx.storage.getAlarm();
-		if (alarm === null) {
-			await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
-		}
 
 		// broadcast update
 		const encoder = encoding.createEncoder();
@@ -448,15 +451,9 @@ export class YjsProvider extends DurableObject<Env> {
 		}
 	}
 
-	private setup() {
-		this.ctx.storage.sql.exec(`
-			CREATE TABLE IF NOT EXISTS doc_updates(
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				data BLOB
-			);`);
-	}
-
 	private async vacuum() {
+		console.log('Vacuuming YjsProvider storage');
+
 		// Merge updates is fast but does not perform perform garbage-collection
 		// so here we load the updates into a Yjs document before persisting them.
 		const doc = new Y.Doc({ gc: true });
@@ -468,10 +465,16 @@ export class YjsProvider extends DurableObject<Env> {
 		await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
 
 		// Clear partial updates
-		this.ctx.storage.sql.exec('DELETE FROM doc_updates;');
+		this.db.exec('DELETE FROM doc_updates;');
+
+		console.log('Current number of sessions:', this.sessions.size);
 
 		if (this.sessions.size === 0) {
-			await this.ctx.storage.deleteAll();
+			console.log('No active sessions, clearing storage');
+			await this.ctx.blockConcurrencyWhile(async () => {
+				await this.ctx.storage.deleteAlarm();
+				await this.ctx.storage.deleteAll();
+			});
 		}
 	}
 }
