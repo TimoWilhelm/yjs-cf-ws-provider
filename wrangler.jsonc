@@ -7,27 +7,27 @@
 	"name": "yjs-provider",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-04-26",
+	"compatibility_flags": ["nodejs_compat"],
 	"assets": {
 		"directory": "dist"
 	},
 	"vars": {
 		"YJS_VACUUM_INTERVAL_IN_MS": "30000"
 	},
-
 	"r2_buckets": [
 		{
 			"binding": "R2_YJS_BUCKET",
 			"bucket_name": "yjs-bucket"
 		}
 	],
-
 	"durable_objects": {
-		"bindings": [{
-			"name": "DURABLE_YJSPROVIDER",
-			"class_name": "YjsProvider"
-		}]
+		"bindings": [
+			{
+				"name": "DURABLE_YJSPROVIDER",
+				"class_name": "YjsProvider"
+			}
+		]
 	},
-
 	"migrations": [
 		{
 			"tag": "v1",

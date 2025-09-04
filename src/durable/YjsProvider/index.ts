@@ -24,7 +24,6 @@
  * SOFTWARE.
  */
 
-import { DurableObject } from 'cloudflare:workers';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 import { equalityDeep } from 'lib0/function';
@@ -33,11 +32,9 @@ import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import z from 'zod';
 import { Browsable } from '@outerbase/browsable-durable-object';
-
-type DbUpdate = {
-	id: number;
-	data: ArrayBuffer;
-};
+import { DrizzleDurableObject } from '../_util/drizzle-do';
+import * as schema from './db/schema';
+import migrations from './db/drizzle/migrations.js';
 
 interface SessionInfo {
 	readonly: boolean;
@@ -55,7 +52,10 @@ const enum SYNC_MESSAGE_TYPE {
 }
 
 @Browsable()
-export class YjsProvider extends DurableObject<Env> {
+export class YjsProvider extends DrizzleDurableObject<typeof schema, Env> {
+	protected readonly schema = schema;
+	protected readonly migrations = migrations;
+
 	private sessions = new Map<
 		WebSocket,
 		{
@@ -63,8 +63,6 @@ export class YjsProvider extends DurableObject<Env> {
 			context: SessionInfo;
 		}
 	>();
-
-	private migrationsApplied = false;
 
 	private stateAsUpdateV2: Uint8Array = new Uint8Array();
 
@@ -74,12 +72,6 @@ export class YjsProvider extends DurableObject<Env> {
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
-
-		const originalDeleteAll = this.ctx.storage.deleteAll.bind(this.ctx.storage);
-		this.ctx.storage.deleteAll = async (options?: DurableObjectPutOptions) => {
-			await originalDeleteAll(options);
-			this.migrationsApplied = false;
-		};
 
 		const vacuumIntervalInMs = z.coerce.number().positive().optional().parse(env.YJS_VACUUM_INTERVAL_IN_MS);
 
@@ -93,6 +85,17 @@ export class YjsProvider extends DurableObject<Env> {
 			this.sessions.set(ws, { ...meta });
 		});
 
+		// patch getDb to run vacuum after storage access
+		const originalGetDb = this.getDb.bind(this);
+		this.getDb = async () => {
+			const db = await originalGetDb();
+			const alarm = await this.ctx.storage.getAlarm();
+			if (alarm === null) {
+				await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
+			}
+			return db;
+		};
+
 		// hydrate DO state
 		void this.ctx.blockConcurrencyWhile(async () => {
 			const updates = [] as Uint8Array[];
@@ -103,33 +106,15 @@ export class YjsProvider extends DurableObject<Env> {
 				updates.push(baseUpdate);
 			}
 
-			const cursor = this.db.exec<DbUpdate>('SELECT * FROM doc_updates');
+			const db = await this.getDb();
+			const dbUpdates = await db.query.docUpdates.findMany();
 
-			for (const row of cursor) {
+			for (const row of dbUpdates) {
 				updates.push(new Uint8Array(row.data));
 			}
 
 			this.stateAsUpdateV2 = Y.mergeUpdatesV2(updates);
 		});
-	}
-
-	private get db() {
-		if (!this.migrationsApplied) {
-			this.ctx.storage.sql.exec(`
-				CREATE TABLE IF NOT EXISTS doc_updates(
-					id INTEGER PRIMARY KEY AUTOINCREMENT,
-					data BLOB
-				);`);
-			this.migrationsApplied = true;
-		}
-		// run vacuum after storage access
-		void this.ctx.storage.getAlarm().then(async (alarm) => {
-			if (alarm === null) {
-				await this.ctx.storage.setAlarm(Temporal.Now.instant().add(this.vacuumInterval).epochMilliseconds);
-			}
-		});
-
-		return this.ctx.storage.sql;
 	}
 
 	public async fetch(request: Request): Promise<Response> {
@@ -148,6 +133,14 @@ export class YjsProvider extends DurableObject<Env> {
 	public async alarm(): Promise<void> {
 		console.log('Alarm fired, vacuuming YjsProvider storage');
 		await this.vacuum();
+	}
+
+	public cleanup(): void {
+		void this.ctx.blockConcurrencyWhile(async () => {
+			await this.ctx.storage.deleteAlarm();
+			await this.ctx.storage.deleteAll();
+			this.ctx.abort();
+		});
 	}
 
 	public getSnapshot(): ReadableStream<Uint8Array> {
@@ -245,7 +238,11 @@ export class YjsProvider extends DurableObject<Env> {
 		const updateV2 = Y.convertUpdateFormatV1ToV2(updateV1);
 
 		// persist update
-		this.db.exec<Pick<DbUpdate, 'id'>>(`INSERT INTO doc_updates (data) VALUES (?)`, [updateV2.buffer]);
+		const db = await this.getDb();
+		await db
+			.insert(schema.docUpdates)
+			.values({ data: Buffer.from(updateV2) })
+			.execute();
 
 		// merge update
 		this.stateAsUpdateV2 = Y.mergeUpdatesV2([this.stateAsUpdateV2, updateV2]);
@@ -396,14 +393,24 @@ export class YjsProvider extends DurableObject<Env> {
 		const removed = [];
 		const len = decoding.readVarUint(decoder);
 		for (let i = 0; i < len; i += 1) {
-			const clientID = decoding.readVarUint(decoder);
-			let clock = decoding.readVarUint(decoder);
-			const state = JSON.parse(decoding.readVarString(decoder)) as { [x: string]: unknown } | null;
-
 			const session = this.sessions.get(origin);
 			if (session === undefined) {
 				console.warn('Ignoring awareness update from unknown session');
 				return;
+			}
+
+			const clientID = decoding.readVarUint(decoder);
+			let clock = decoding.readVarUint(decoder);
+			let state = JSON.parse(decoding.readVarString(decoder)) as { [x: string]: unknown } | null;
+
+			if (state !== null) {
+				state = {
+					...state,
+
+					// server managed properties
+					isRemote: true,
+					readonly: session.context.readonly,
+				};
 			}
 
 			const clientMeta = awareness.meta.get(clientID);
@@ -465,7 +472,8 @@ export class YjsProvider extends DurableObject<Env> {
 		await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
 
 		// Clear partial updates
-		this.db.exec('DELETE FROM doc_updates;');
+		const db = await this.getDb();
+		await db.delete(schema.docUpdates);
 
 		console.log('Current number of sessions:', this.sessions.size);
 
