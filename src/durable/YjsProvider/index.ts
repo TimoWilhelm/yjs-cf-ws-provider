@@ -100,12 +100,6 @@ export class YjsProvider extends DrizzleDurableObject<typeof schema, Env> {
 		void this.ctx.blockConcurrencyWhile(async () => {
 			const updates = [] as Uint8Array[];
 
-			const result = await env.R2_YJS_BUCKET.get(`state:${this.ctx.id.toString()}`);
-			if (result) {
-				const baseUpdate = new Uint8Array(await result.arrayBuffer());
-				updates.push(baseUpdate);
-			}
-
 			const db = await this.getDb();
 			const dbUpdates = await db.query.docUpdates.findMany();
 
@@ -467,9 +461,6 @@ export class YjsProvider extends DrizzleDurableObject<typeof schema, Env> {
 		Y.applyUpdateV2(doc, this.stateAsUpdateV2);
 		this.stateAsUpdateV2 = Y.encodeStateAsUpdateV2(doc);
 		doc.destroy();
-
-		// Persist merged update
-		await this.env.R2_YJS_BUCKET.put(`state:${this.ctx.id.toString()}`, this.stateAsUpdateV2);
 
 		// Clear partial updates
 		const db = await this.getDb();

@@ -14,12 +14,6 @@
 	"vars": {
 		"YJS_VACUUM_INTERVAL_IN_MS": "30000"
 	},
-	"r2_buckets": [
-		{
-			"binding": "R2_YJS_BUCKET",
-			"bucket_name": "yjs-bucket"
-		}
-	],
 	"durable_objects": {
 		"bindings": [
 			{
